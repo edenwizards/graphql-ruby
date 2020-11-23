@@ -34,11 +34,18 @@
 //     // Do something with `data` and/or `errors`
 //   }})
 //
-import { ApolloLink, Observable, Operation, NextLink, FetchResult } from "apollo-link"
+import {
+  ApolloLink,
+  Observable,
+  Operation,
+  NextLink,
+  FetchResult
+} from "apollo-link"
 import { Pusher } from "pusher-js"
 
-
-type RequestResult = Observable<FetchResult<{ [key: string]: any; }, Record<string, any>, Record<string, any>>>
+type RequestResult = Observable<
+  FetchResult<{ [key: string]: any }, Record<string, any>, Record<string, any>>
+>
 
 class PusherLink extends ApolloLink {
   pusher: Pusher
@@ -50,14 +57,22 @@ class PusherLink extends ApolloLink {
   }
 
   request(operation: Operation, forward: NextLink): RequestResult {
-    const subscribeObservable = new Observable((_observer) => {  }) as RequestResult
+    const subscribeObservable = new Observable(
+      (_observer) => {}
+    ) as RequestResult
     var pusher = this.pusher
     // Capture the super method
-    const prevSubscribe = subscribeObservable.subscribe.bind(subscribeObservable)
+    const prevSubscribe = subscribeObservable.subscribe.bind(
+      subscribeObservable
+    )
 
     // Override subscribe to return an `unsubscribe` object, see
     // https://github.com/apollographql/subscriptions-transport-ws/blob/master/src/client.ts#L182-L212
-    subscribeObservable.subscribe = (observerOrNext: any, onError: (error: any) => void, onComplete: () => void) => {
+    subscribeObservable.subscribe = (
+      observerOrNext: any,
+      onError: (error: any) => void,
+      onComplete: () => void
+    ) => {
       // Call super
       prevSubscribe(observerOrNext, onError, onComplete)
       const observer = getObserver(observerOrNext, onError, onComplete)
@@ -65,35 +80,39 @@ class PusherLink extends ApolloLink {
       // Check the result of the operation
       const resultObservable = forward(operation)
       // When the operation is done, try to get the subscription ID from the server
-      resultObservable.subscribe({ next: (data) => {
-        // If the operation has the subscription header, it's a subscription
-        const response = operation.getContext().response
-        // Check to see if the response has the header
-        subscriptionChannel = response.headers.get("X-Subscription-ID")
-        if (subscriptionChannel) {
-          // Set up the pusher subscription for updates from the server
-          const pusherChannel = this.pusher.subscribe(subscriptionChannel)
-          // Subscribe for more update
-          pusherChannel.bind("update", function(payload) {
-            if (!payload.more) {
-              // This is the end, the server says to unsubscribe
-              pusher.unsubscribe(subscriptionChannel)
-              observer.complete()
-            }
-            const result = payload.result
-            if (result) {
-              // Send the new response to listeners
-              observer.next(result)
-            }
-          })
+      resultObservable.subscribe({
+        next: (data) => {
+          // If the operation has the subscription header, it's a subscription
+          const response = operation.getContext().response
+          // Check to see if the response has the header
+          subscriptionChannel = response.headers.get("X-Subscription-ID")
+          if (subscriptionChannel) {
+            // Set up the pusher subscription for updates from the server
+            const pusherChannel = this.pusher.subscribe(subscriptionChannel)
+            // Subscribe for more update
+            pusherChannel.bind("update", function (payload) {
+              if (!payload.more) {
+                // This is the end, the server says to unsubscribe
+                pusher.unsubscribe(subscriptionChannel)
+                observer.complete()
+              }
+              const result = payload.result
+              if (result) {
+                // Send the new response to listeners
+                observer.next(result)
+              }
+            })
+          } else {
+            // This isn't a subscription,
+            // So pass the data along and close the observer.
+            observer.next(data)
+            observer.complete()
+          }
+        },
+        error: (err) => {
+          observer.error(err)
         }
-        else {
-          // This isn't a subscription,
-          // So pass the data along and close the observer.
-          observer.next(data)
-          observer.complete()
-        }
-      }})
+      })
       // Return an object that will unsubscribe _if_ the query was a subscription.
       return {
         closed: false,
@@ -109,20 +128,26 @@ class PusherLink extends ApolloLink {
 
 // Turn `subscribe` arguments into an observer-like thing, see getObserver
 // https://github.com/apollographql/subscriptions-transport-ws/blob/master/src/client.ts#L329-L343
-function getObserver(observerOrNext: Function | {next: Function, error: Function, complete: Function}, onError: Function, onComplete: Function) {
-  if (typeof observerOrNext === 'function') {
+function getObserver(
+  observerOrNext:
+    | Function
+    | { next: Function; error: Function; complete: Function },
+  onError: Function,
+  onComplete: Function
+) {
+  if (typeof observerOrNext === "function") {
     // Duck-type an observer
     return {
       next: (v: object) => observerOrNext(v),
       error: (e: object) => onError && onError(e),
-      complete: () => onComplete && onComplete(),
+      complete: () => onComplete && onComplete()
     }
   } else {
     // Make an object that calls to the given object, with safety checks
     return {
       next: (v: object) => observerOrNext.next && observerOrNext.next(v),
       error: (e: object) => observerOrNext.error && observerOrNext.error(e),
-      complete: () => observerOrNext.complete && observerOrNext.complete(),
+      complete: () => observerOrNext.complete && observerOrNext.complete()
     }
   }
 }
